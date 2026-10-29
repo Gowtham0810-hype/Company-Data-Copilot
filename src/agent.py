@@ -29,7 +29,27 @@ from src.tools import (
 
 logger = logging.getLogger(__name__)
 
+def _extract_text(content) -> str:
+    """Extract plain text from LLM response content.
 
+    Newer Gemini models return content as a list of dicts
+    [{'type': 'text', 'text': '...', ...}] instead of a plain string.
+    This helper normalizes both formats to a single string.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return str(content)
+    
 class AgentState(TypedDict):
     """Typed state that flows through the LangGraph nodes."""
 
