@@ -1,14 +1,14 @@
 # 📊 Company Data Copilot
 
-A **LangGraph-based AI agent** that answers natural-language questions over a PostgreSQL stock trading platform database using **Google Gemini**, **OKF knowledge files**, and a **Chainlit chat UI**.
+A modern **LangGraph-based AI agent** that answers natural-language questions over a PostgreSQL stock trading platform database using **Google Gemini**, **OKF knowledge files**, and a **Chainlit chat UI**.
 
 Ask questions in plain English — the agent generates safe SQL, executes it against your database, and returns formatted, insightful answers.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green?logo=langchain&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql&logoColor=white)
-![Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-orange?logo=google&logoColor=white)
-![Chainlit](https://img.shields.io/badge/Chainlit-1.3+-purple)
+![Gemini](https://img.shields.io/badge/Google_Gemini-3.1_Flash_Lite-orange?logo=google&logoColor=white)
+![Chainlit](https://img.shields.io/badge/Chainlit-2.0+-purple)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -17,14 +17,15 @@ Ask questions in plain English — the agent generates safe SQL, executes it aga
 
 | Feature | Description |
 |---------|-------------|
-| 🤖 **Natural Language SQL** | Ask questions in English → get SQL-powered answers |
-| 🛡️ **SQL Guardrails** | Read-only enforcement, blocked keywords, injection prevention, query timeout |
+| 🤖 **Natural Language SQL** | Ask questions in plain English → get SQL-powered answers with tables & insights |
+| 🛡️ **SQL Guardrails** | Read-only enforcement, blocked keywords, injection prevention, query timeouts |
 | 📚 **OKF Knowledge Files** | YAML-based schema definitions, metric templates, join paths, business glossary |
-| 🔧 **Tool-Based Architecture** | LangGraph agent with 6 specialized tools for SQL execution, validation, and knowledge lookup |
-| 💬 **Chainlit Chat UI** | Modern, dark-themed chat interface with conversation memory |
-| 🐳 **Docker-Ready** | One-command PostgreSQL setup with seed data |
+| 🔧 **Tool-Based Architecture** | LangGraph agent with specialized tools for SQL execution, validation, and knowledge lookup |
+| ⚡ **Quota & Rate Management** | Built-in sliding-window rate limiter (4 RPM cap) optimized for Gemini Free Tier |
+| 🔄 **Robust Multi-Turn Memory** | Context-sanitized conversation history preventing Gemini turn-order validation errors |
+| 💬 **Chainlit Chat UI** | Modern dark-themed chat interface with real-time latency and quota visibility |
+| 🐳 **Docker-Ready** | One-command PostgreSQL setup with full trading platform seed data |
 | 📊 **30 Real Stocks** | Pre-loaded data: AAPL, MSFT, GOOGL, TSLA, NVDA, JPM, RELIANCE, TCS, and more |
-| 🔄 **Multi-Turn Memory** | Conversation context preserved across messages via LangGraph checkpointer |
 
 ---
 
@@ -47,11 +48,11 @@ Ask questions in plain English — the agent generates safe SQL, executes it aga
 │   └──────────┘    └──────────────┘    └──────────┘      │
 │        │                                    │            │
 │        ▼                                    ▼            │
-│   ┌──────────┐                    ┌──────────────────┐  │
-│   │  Gemini  │                    │  6 Agent Tools   │  │
-│   │  2.0     │                    │  ─────────────   │  │
-│   │  Flash   │                    │  execute_sql     │  │
-│   └──────────┘                    │  validate_sql    │  │
+│   ┌───────────────┐               ┌──────────────────┐  │
+│   │ Rate Limiter  │               │  6 Agent Tools   │  │
+│   │ & Gemini 3.1  │               │  ─────────────   │  │
+│   │  Flash Lite   │               │  execute_sql     │  │
+│   └───────────────┘               │  validate_sql    │  │
 │                                   │  get_table_info  │  │
 │                                   │  get_metric_def  │  │
 │                                   │  list_tables     │  │
@@ -75,17 +76,18 @@ Ask questions in plain English — the agent generates safe SQL, executes it aga
 
 ```
 Company Data Copilot/
-├── app.py                      # Chainlit entry point
+├── app.py                      # Chainlit entry point with usage visibility
 ├── docker-compose.yml          # PostgreSQL container setup
 ├── pyproject.toml              # Modern Python packaging
 ├── requirements.txt            # Pip dependencies
 ├── .env.example                # Environment template
 ├── .gitignore
 ├── chainlit.md                 # Chat landing page
-├── README.md
+├── README.md                   # Full documentation
+├── LICENSE                     # MIT License
 │
 ├── db/
-│   └── init.sql                # Full schema + seed data (837 lines)
+│   └── init.sql                # Full schema + seed data (837 lines, 15 tables)
 │
 ├── knowledge/                  # OKF Knowledge Files
 │   ├── schema.yaml             # Table & column definitions
@@ -97,11 +99,11 @@ Company Data Copilot/
 │   ├── __init__.py
 │   ├── config.py               # Pydantic settings from .env
 │   ├── database.py             # SQLAlchemy read-only query engine
-│   ├── knowledge_loader.py     # YAML loader + prompt formatter
-│   ├── guardrails.py           # SQL safety validation
-│   ├── prompts.py              # System & task prompts
+│   ├── knowledge_loader.py     # Compact & verbose YAML context loaders
+│   ├── guardrails.py           # SQL safety validation & output sanitization
+│   ├── prompts.py              # System prompts & database date context
 │   ├── tools.py                # 6 LangGraph @tool definitions
-│   └── agent.py                # LangGraph StateGraph agent
+│   └── agent.py                # StateGraph agent, rate limiter & context sanitizer
 │
 └── .chainlit/
     └── config.toml             # Chainlit UI configuration
@@ -111,25 +113,25 @@ Company Data Copilot/
 
 ## 🗄️ Database Schema
 
-The stock trading platform database includes **15 tables** with realistic seed data:
+The stock trading platform database models **15 tables** with comprehensive relationships and realistic data:
 
 | Table | Description | Seed Records |
 |-------|-------------|:------------:|
 | `exchanges` | NYSE, NASDAQ, BSE, NSE, LSE | 5 |
-| `sectors` | Technology, Finance, Healthcare, etc. | 10 |
-| `stocks` | AAPL, MSFT, GOOGL, TSLA, RELIANCE, TCS… | 30 |
-| `stock_prices` | Daily OHLCV price data | ~100 |
-| `brokers` | Licensed trading brokers | 5 |
+| `sectors` | Technology, Finance, Healthcare, Energy, etc. | 10 |
+| `stocks` | AAPL, MSFT, GOOGL, TSLA, NVDA, RELIANCE, TCS… | 30 |
+| `stock_prices` | Daily OHLCV price data with trading dates | ~100 |
+| `brokers` | Licensed trading brokers with commission rates | 5 |
 | `clients` | Individual & institutional investors | 15 |
 | `portfolios` | Named investment portfolios | 10 |
-| `portfolio_holdings` | Stock positions in portfolios | ~30 |
-| `orders` | Market, limit, stop-loss orders | ~80 |
-| `trades` | Executed trade records | ~60 |
-| `dividends` | Dividend payment history | 10 |
+| `portfolio_holdings` | Stock positions with buy price & current value | ~30 |
+| `orders` | Market, limit, and stop-loss orders | ~80 |
+| `trades` | Executed buy/sell trade records with commissions | ~60 |
+| `dividends` | Dividend declaration, record, and payment dates | 10 |
 | `watchlists` | Client stock watchlists | 5 |
-| `watchlist_items` | Stocks in watchlists | ~15 |
-| `market_indices` | S&P 500, DJIA, NIFTY 50, SENSEX, FTSE 100 | 3–5 |
-| `index_compositions` | Index constituent stocks | ~20 |
+| `watchlist_items` | Individual stocks tracked on watchlists | ~15 |
+| `market_indices` | S&P 500, DJIA, NIFTY 50, SENSEX, FTSE 100 | 5 |
+| `index_compositions` | Index constituent weightings | ~20 |
 
 ---
 
@@ -139,7 +141,7 @@ The stock trading platform database includes **15 tables** with realistic seed d
 
 - **Python 3.11+**
 - **Docker & Docker Compose**
-- **Google API Key** (for Gemini) — [Get one here](https://aistudio.google.com/apikey)
+- **Google AI API Key** — [Get an API key from Google AI Studio](https://aistudio.google.com/apikey)
 
 ### 1. Clone the Repository
 
@@ -157,49 +159,47 @@ cp .env.example .env
 Edit `.env` and add your Google API key:
 
 ```env
+# LLM
 GOOGLE_API_KEY=your_actual_google_api_key
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
+
+# PostgreSQL
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=trading_platform
 POSTGRES_USER=copilot_user
 POSTGRES_PASSWORD=copilot_pass_2024
+
+# App Settings
 MAX_QUERY_ROWS=100
 QUERY_TIMEOUT_SECONDS=30
 ```
 
-### 3. Start PostgreSQL
+### 3. Start PostgreSQL with Docker
 
 ```bash
 docker-compose up -d
 ```
 
-Wait ~30 seconds for the database to initialize with seed data. Verify:
+Verify that the database is populated:
 
 ```bash
 docker exec -it copilot_postgres psql -U copilot_user -d trading_platform -c "SELECT COUNT(*) FROM stocks;"
 ```
 
-### 4. Install Python Dependencies
+### 4. Install Dependencies
 
 ```bash
-# Using pip
 pip install -r requirements.txt
-
-# Or using pyproject.toml (recommended)
-pip install -e .
-
-# Or with dev dependencies
-pip install -e ".[dev]"
 ```
 
-### 5. Launch the App
+### 5. Launch the Chat Interface
 
 ```bash
 chainlit run app.py -w
 ```
 
-Open **http://localhost:8000** in your browser. Start asking questions! 🎉
+Open **http://localhost:8000** in your browser.
 
 ---
 
@@ -207,91 +207,88 @@ Open **http://localhost:8000** in your browser. Start asking questions! 🎉
 
 | Category | Example Question |
 |----------|-----------------|
-| 📈 Stock Analysis | *"What are the top 5 stocks by trading volume?"* |
-| 📈 Stock Analysis | *"Show AAPL's price history for the last 30 days"* |
-| 📈 Stock Analysis | *"Which stocks have gained the most this month?"* |
-| 💼 Portfolio | *"What's the total value of John Smith's portfolio?"* |
-| 💼 Portfolio | *"Show me the sector allocation across all portfolios"* |
-| 🔄 Trading | *"How many trades were executed today? What was the total volume?"* |
-| 🔄 Trading | *"What's the total commission earned by each broker?"* |
-| 🔄 Trading | *"Show me all pending orders"* |
-| 👥 Clients | *"List the top 10 clients by account balance"* |
-| 👥 Clients | *"How many institutional vs individual accounts do we have?"* |
-| 📊 Market | *"Which sector has the highest total market cap?"* |
-| 📊 Market | *"Show me all stocks with a dividend yield above 3%"* |
-| 🔍 Glossary | *"What does VWAP mean?"* |
+| 📈 **Stock Analysis** | *"What are the top 5 stocks by market cap?"* |
+| 📈 **Stock Analysis** | *"Give top 3 stocks of this week based on trading volume"* |
+| 📈 **Stock Analysis** | *"Show Apple (AAPL) price history and daily returns"* |
+| 💼 **Portfolios** | *"What is the total value of John Smith's portfolio?"* |
+| 💼 **Portfolios** | *"Show sector allocation across all portfolios"* |
+| 🔄 **Trading Activity** | *"How many trades were executed today and what was the net amount?"* |
+| 🔄 **Trading Activity** | *"What is the total commission earned by each broker?"* |
+| 👥 **Clients & Accounts** | *"List the top 10 clients by account balance"* |
+| 📊 **Market & Dividends** | *"Which stocks have the highest dividend yield?"* |
+| 🔍 **Financial Glossary** | *"What does VWAP mean and how is it calculated?"* |
+
+---
+
+## ⚡ Performance & Quota Optimization
+
+To run smoothly on the Gemini Free Tier (5 RPM limit), the system implements several architectural optimizations:
+
+1. **Sliding-Window Rate Limiter**: Automatically paces requests to a maximum of 4 calls per 60 seconds, preventing `429 RESOURCE_EXHAUSTED` errors.
+2. **Compact Prompt Injection**: Generates concise, single-line table schemas (`table(col TYPE PK, col TYPE FK->ref)`), reducing system prompt size from ~45,000 to ~10,000 characters.
+3. **Multi-Turn Turn Sanitizer**: Collapses historical chat turns into clean `User ↔ Assistant` text pairs, stripping out old intermediate tool-call records. This prevents Gemini's `400 INVALID_ARGUMENT` turn-alternation errors and eliminates token inflation.
+4. **Guaranteed 2-Step Execution**: Once an SQL query executes, the agent immediately synthesizes the answer, eliminating runaway multi-step loops and recursion errors.
+5. **Real-Time Visibility Footer**: Each response displays API call latency and quota consumption:
+   > *⏱️ 2.4s | 📊 Free-tier API calls: 2/4 RPM used (2 available) · Total: 4 calls*
 
 ---
 
 ## 🛡️ Safety & Guardrails
 
-The system enforces multiple layers of protection:
+The application enforces multiple defense-in-depth security layers:
 
-| Layer | Protection |
-|-------|------------|
-| **SQL Parsing** | Only `SELECT` statements allowed (via `sqlparse`) |
-| **Keyword Blocking** | `DROP`, `DELETE`, `INSERT`, `UPDATE`, `ALTER`, `CREATE`, `TRUNCATE`, and 15+ more |
-| **Pattern Detection** | Multi-statement injection, SQL comments, `pg_sleep`, system catalog access |
-| **Read-Only Transactions** | `SET TRANSACTION READ ONLY` on every query |
-| **Statement Timeout** | Configurable timeout (default: 30s) prevents runaway queries |
-| **Row Limits** | Maximum 100 rows returned per query |
-| **Query Length Limit** | Max 2000 characters per query |
-| **Output Sanitization** | SSN and credit card patterns automatically redacted |
+| Layer | Implementation |
+|-------|----------------|
+| **Statement Whitelist** | AST verification with `sqlparse` — strictly permits `SELECT` statements only |
+| **Keyword Blacklist** | Blocks mutation and admin keywords (`DROP`, `DELETE`, `INSERT`, `UPDATE`, `ALTER`, `TRUNCATE`, `EXEC`, `VACUUM`) |
+| **Injection Defense** | Rejects multi-statement batches (`;`), SQL comments (`--`, `/* */`), and sleeping attacks (`pg_sleep`) |
+| **Transaction Read-Only** | Every connection enforces `SET TRANSACTION READ ONLY` at the database session level |
+| **Statement Timeout** | PostgreSQL query execution timeout enforced via `SET statement_timeout` |
+| **Output Sanitization** | Automatic regex masking of sensitive data (SSNs, credit card numbers) |
+| **Row Truncation** | Caps query outputs to 100 rows to prevent memory exhaustion |
 
 ---
 
 ## 📚 OKF Knowledge Files
 
-The agent uses **Organizational Knowledge Files** (YAML) to understand the database without needing to introspect it at runtime:
+The agent references **Organizational Knowledge Files (OKF)** formatted in YAML:
 
-### `knowledge/schema.yaml`
-Complete table and column definitions with types, nullability, primary keys, and business descriptions.
-
-### `knowledge/metrics.yaml`
-20+ pre-defined business metrics with SQL templates:
-- Portfolio total value, return %, unrealized P&L
-- Daily trading volume, commission earned, average trade size
-- Stock daily return, volatility, VWAP
-- Dividend yield, order fill rate, sector allocation
-- And more…
-
-### `knowledge/joins.yaml`
-All valid join paths between tables, including multi-hop paths (e.g., `trades → stocks → sectors`).
-
-### `knowledge/glossary.yaml`
-Business term definitions: AUM, P&L, VWAP, Market Cap, IPO, Settlement, Fill Rate, Liquidity, Volatility, etc.
+- **`knowledge/schema.yaml`**: Complete catalog of tables, column data types, foreign keys, and business descriptions.
+- **`knowledge/metrics.yaml`**: Pre-defined financial KPIs and SQL templates (AUM, P&L, VWAP, Sharpe ratio, dividend yield, fill rate, etc.).
+- **`knowledge/joins.yaml`**: Valid join paths between entities, including multi-hop relations (e.g. `trades -> orders -> clients`).
+- **`knowledge/glossary.yaml`**: Financial terminology definitions for analyst reference.
 
 ---
 
 ## 🔧 Agent Tools
 
-The LangGraph agent has 6 tools at its disposal:
+The LangGraph agent utilizes 6 specialized tools:
 
-| Tool | Description |
-|------|-------------|
-| `execute_sql_query` | Validate and execute a read-only SQL query, return formatted results |
-| `validate_sql` | Check a SQL query for safety without executing it |
-| `get_table_info` | Look up detailed schema info for a specific table |
-| `get_metric_definition` | Find metric definitions and SQL templates by name/keyword |
-| `list_available_tables` | List all tables with descriptions |
-| `search_glossary` | Look up financial/trading term definitions |
+| Tool | Purpose |
+|------|---------|
+| `execute_sql_query` | Validates and executes read-only SQL queries and returns Markdown tables |
+| `validate_sql` | Validates SQL against guardrail rules without database execution |
+| `get_table_info` | Retrieves detailed column-level schema definitions for a specific table |
+| `get_metric_definition` | Retrieves metric calculations and parameterized SQL templates |
+| `list_available_tables` | Lists all tables in the database with short descriptions |
+| `search_glossary` | Looks up financial definitions and trading concepts |
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration Reference
 
-All configuration is via environment variables (`.env` file):
+All settings are managed via `.env` (loaded through Pydantic Settings):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GOOGLE_API_KEY` | *(required)* | Google AI API key for Gemini |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model to use |
-| `POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `GOOGLE_API_KEY` | *(required)* | Google AI Gemini API key |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | Gemini model identifier |
+| `POSTGRES_HOST` | `localhost` | PostgreSQL host address |
 | `POSTGRES_PORT` | `5432` | PostgreSQL port |
 | `POSTGRES_DB` | `trading_platform` | Database name |
 | `POSTGRES_USER` | `copilot_user` | Database user |
 | `POSTGRES_PASSWORD` | `copilot_pass_2024` | Database password |
-| `MAX_QUERY_ROWS` | `100` | Max rows returned per query |
+| `MAX_QUERY_ROWS` | `100` | Maximum rows returned per SQL query |
 | `QUERY_TIMEOUT_SECONDS` | `30` | SQL statement timeout |
 
 ---
@@ -299,68 +296,20 @@ All configuration is via environment variables (`.env` file):
 ## 🧰 Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **LLM** | Google Gemini 2.0 Flash |
-| **Agent Framework** | LangGraph + LangChain |
+|-------|------------|
+| **LLM** | Google Gemini 3.1 Flash Lite via `langchain-google-genai` |
+| **Agent Framework** | LangGraph + LangChain Core |
 | **Database** | PostgreSQL 16 |
-| **ORM / DB Driver** | SQLAlchemy 2.0 + psycopg 3 |
-| **Knowledge Format** | YAML (OKF) |
-| **Chat UI** | Chainlit |
-| **Config** | Pydantic Settings |
-| **SQL Safety** | sqlparse + custom guardrails |
-| **Containerization** | Docker Compose |
+| **ORM / Connection Engine** | SQLAlchemy 2.0 + psycopg 3 |
+| **Knowledge System** | YAML (Organizational Knowledge Files) |
+| **Chat Interface** | Chainlit 2.0+ |
+| **Configuration** | Pydantic Settings 2.0+ |
+| **SQL Safety & Parsing** | sqlparse |
+| **Containerization** | Docker & Docker Compose |
 | **Language** | Python 3.11+ |
-
----
-
-## 🧪 Development
-
-### Run with auto-reload
-
-```bash
-chainlit run app.py -w
-```
-
-### Install dev dependencies
-
-```bash
-pip install -e ".[dev]"
-```
-
-### Lint & format
-
-```bash
-ruff check src/ app.py
-ruff format src/ app.py
-```
-
-### Type checking
-
-```bash
-mypy src/
-```
-
----
-
-## 🗺️ Roadmap
-
-- [ ] Streaming responses in Chainlit
-- [ ] Query result visualization (charts via Plotly)
-- [ ] Export results to CSV/Excel
-- [ ] Multi-database support
-- [ ] Authentication & role-based access
-- [ ] Query history & bookmarking
-- [ ] Async database driver (asyncpg)
-- [ ] Rate limiting for API calls
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  Built with ❤️ using <strong>LangGraph</strong> · <strong>Google Gemini</strong> · <strong>PostgreSQL</strong> · <strong>Chainlit</strong>
-</p>
