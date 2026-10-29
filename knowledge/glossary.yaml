@@ -1,0 +1,376 @@
+# =============================================================================
+# Business Glossary — Stock Trading Platform
+# Description: Definitions of key financial and platform-specific terms used
+#   in the trading_platform database and related business conversations.
+# =============================================================================
+
+glossary:
+  - term: AUM
+    definition: >
+      Assets Under Management. The total market value of all investments
+      managed on behalf of a client, including cash balances and the current
+      market value of all portfolio holdings.
+    related_tables:
+      - clients
+      - portfolios
+      - portfolio_holdings
+    example_query: |
+      SELECT
+          c.id,
+          c.first_name || ' ' || c.last_name AS client_name,
+          c.account_balance + COALESCE(SUM(ph.current_value), 0) AS aum
+      FROM clients c
+      LEFT JOIN portfolios p ON p.client_id = c.id
+      LEFT JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      GROUP BY c.id, c.first_name, c.last_name, c.account_balance
+      ORDER BY aum DESC;
+
+  - term: P&L
+    definition: >
+      Profit and Loss. The financial gain or loss resulting from trading
+      activities. Can be "realised" (from completed sell trades) or
+      "unrealised" (from open positions valued at current market prices).
+    related_tables:
+      - trades
+      - portfolio_holdings
+    example_query: |
+      -- Unrealised P&L per holding
+      SELECT
+          s.ticker_symbol,
+          ph.current_value - (ph.quantity * ph.average_buy_price) AS unrealised_pnl
+      FROM portfolio_holdings ph
+      JOIN stocks s ON s.id = ph.stock_id
+      WHERE ph.portfolio_id = 1;
+
+  - term: VWAP
+    definition: >
+      Volume-Weighted Average Price. The average price at which a security
+      traded throughout the day, weighted by volume. Calculated as
+      Σ(typical_price × volume) / Σ(volume), where typical_price =
+      (high + low + close) / 3. Used as a benchmark to evaluate trade
+      execution quality.
+    related_tables:
+      - stock_prices
+    example_query: |
+      SELECT
+          SUM((high_price + low_price + close_price) / 3.0 * volume) / SUM(volume) AS vwap
+      FROM stock_prices
+      WHERE stock_id = 1 AND trade_date = '2024-01-15';
+
+  - term: Market Cap
+    definition: >
+      Market Capitalisation. The total dollar market value of a company's
+      outstanding shares. Calculated as current share price × total shares
+      outstanding. Categories: Mega Cap (≥$200B), Large Cap ($10B–$200B),
+      Mid Cap ($2B–$10B), Small Cap ($300M–$2B), Micro Cap (<$300M).
+    related_tables:
+      - stocks
+
+  - term: IPO
+    definition: >
+      Initial Public Offering. The process by which a private company offers
+      shares to the public for the first time. The ipo_date in the stocks
+      table records when this event occurred.
+    related_tables:
+      - stocks
+
+  - term: Dividend Yield
+    definition: >
+      The annualised dividend income per share divided by the current share
+      price, expressed as a percentage. A trailing 12-month (TTM) dividend
+      yield uses the sum of dividends paid over the last 12 months.
+    related_tables:
+      - dividends
+      - stock_prices
+    example_query: |
+      -- TTM dividend yield
+      SELECT
+          SUM(d.dividend_per_share) / sp.close_price * 100 AS dividend_yield_pct
+      FROM dividends d
+      CROSS JOIN LATERAL (
+          SELECT close_price FROM stock_prices
+          WHERE stock_id = d.stock_id ORDER BY trade_date DESC LIMIT 1
+      ) sp
+      WHERE d.stock_id = 1
+        AND d.payment_date >= CURRENT_DATE - INTERVAL '1 year'
+      GROUP BY sp.close_price;
+
+  - term: Commission
+    definition: >
+      A fee charged by a broker for facilitating a trade on behalf of a
+      client. Typically calculated as a percentage (commission_rate) of the
+      trade's total_amount. Recorded on each trade record.
+    related_tables:
+      - trades
+      - brokers
+
+  - term: Settlement
+    definition: >
+      The process of transferring securities and funds between buyer and
+      seller after a trade is executed. In most equity markets the
+      settlement cycle is T+2 (two business days after the trade date).
+      The settlement_date column in the trades table tracks this.
+    related_tables:
+      - trades
+
+  - term: Order Book
+    definition: >
+      The collection of all outstanding (pending and partially filled)
+      buy and sell orders for a particular stock. The orders table, when
+      filtered to status IN ('pending', 'partially_filled'), represents
+      the platform's order book.
+    related_tables:
+      - orders
+    example_query: |
+      SELECT side, order_type, price, quantity, quantity - COALESCE(filled_quantity, 0) AS remaining
+      FROM orders
+      WHERE stock_id = 1 AND status IN ('pending', 'partially_filled')
+      ORDER BY side, price;
+
+  - term: Fill Rate
+    definition: >
+      The percentage of orders that are fully filled (executed) out of all
+      orders placed. A high fill rate indicates efficient order execution.
+      Calculated as COUNT(filled orders) / COUNT(total orders) × 100.
+    related_tables:
+      - orders
+
+  - term: NAV
+    definition: >
+      Net Asset Value. The total value of a portfolio's assets minus
+      liabilities, divided by the number of units (if applicable). In this
+      platform, NAV is approximated as the sum of all portfolio holdings'
+      current values plus the client's cash balance.
+    related_tables:
+      - portfolios
+      - portfolio_holdings
+      - clients
+
+  - term: Ticker Symbol
+    definition: >
+      A unique alphabetic code (usually 1-5 characters) assigned to a
+      publicly traded company for identification on a stock exchange
+      (e.g., "AAPL" for Apple Inc., "TSLA" for Tesla Inc.).
+    related_tables:
+      - stocks
+
+  - term: Bull Market
+    definition: >
+      A market condition characterised by rising stock prices, typically
+      defined as a sustained increase of 20 % or more from a recent low.
+      Indicates widespread investor optimism and confidence.
+    related_tables:
+      - stock_prices
+      - market_indices
+
+  - term: Bear Market
+    definition: >
+      A market condition characterised by falling stock prices, typically
+      defined as a decline of 20 % or more from a recent high. Indicates
+      widespread investor pessimism.
+    related_tables:
+      - stock_prices
+      - market_indices
+
+  - term: Bid-Ask Spread
+    definition: >
+      The difference between the highest price a buyer is willing to pay
+      (bid) and the lowest price a seller is willing to accept (ask) for
+      a security. A narrow spread indicates high liquidity. While not
+      directly stored in the database, it can be estimated from the
+      difference between buy and sell limit order prices in the order book.
+    related_tables:
+      - orders
+    example_query: |
+      -- Estimate bid-ask spread from limit orders
+      SELECT
+          MAX(CASE WHEN side = 'buy' THEN price END) AS best_bid,
+          MIN(CASE WHEN side = 'sell' THEN price END) AS best_ask,
+          MIN(CASE WHEN side = 'sell' THEN price END)
+          - MAX(CASE WHEN side = 'buy' THEN price END) AS spread
+      FROM orders
+      WHERE stock_id = 1
+        AND order_type = 'limit'
+        AND status IN ('pending', 'partially_filled');
+
+  - term: Liquidity
+    definition: >
+      The ease with which a security can be bought or sold without
+      significantly affecting its price. High trading volume and narrow
+      bid-ask spreads indicate high liquidity.
+    related_tables:
+      - stock_prices
+      - trades
+      - orders
+
+  - term: Volatility
+    definition: >
+      A statistical measure of the dispersion of returns for a given
+      security. Typically measured as the standard deviation of daily
+      returns, annualised by multiplying by √252 (the approximate number
+      of trading days per year). High volatility implies higher risk and
+      potentially higher returns.
+    related_tables:
+      - stock_prices
+    example_query: |
+      -- 30-day annualised volatility
+      WITH rets AS (
+          SELECT (adjusted_close / LAG(adjusted_close) OVER (ORDER BY trade_date) - 1) AS r
+          FROM stock_prices WHERE stock_id = 1
+          ORDER BY trade_date DESC LIMIT 30
+      )
+      SELECT ROUND(STDDEV(r) * SQRT(252) * 100, 2) AS annualised_vol_pct FROM rets;
+
+  - term: Blue Chip
+    definition: >
+      A nationally recognised, well-established, and financially sound
+      company with a history of reliable earnings and dividends. Blue-chip
+      stocks typically have large market capitalisations and are often
+      constituents of major market indices.
+    related_tables:
+      - stocks
+      - index_compositions
+      - market_indices
+
+  - term: Penny Stock
+    definition: >
+      A stock that trades at a very low price per share (typically under $5)
+      and usually has a small market capitalisation. Penny stocks are
+      considered highly speculative and volatile.
+    related_tables:
+      - stocks
+      - stock_prices
+    example_query: |
+      SELECT s.ticker_symbol, s.company_name, sp.close_price
+      FROM stocks s
+      JOIN stock_prices sp ON sp.stock_id = s.id
+      WHERE sp.trade_date = (SELECT MAX(trade_date) FROM stock_prices)
+        AND sp.close_price < 5.00
+      ORDER BY sp.close_price;
+
+  - term: Short Selling
+    definition: >
+      The practice of selling borrowed shares with the intention of buying
+      them back later at a lower price. In this platform, short sells are
+      represented as sell-side orders and trades where the client may not
+      already hold the stock in a portfolio.
+    related_tables:
+      - orders
+      - trades
+
+  - term: Market Order
+    definition: >
+      An order to buy or sell a security immediately at the best available
+      current price. Market orders guarantee execution but not the price.
+      Represented as order_type = 'market' in the orders table.
+    related_tables:
+      - orders
+
+  - term: Limit Order
+    definition: >
+      An order to buy or sell a security at a specified price or better.
+      A buy limit order executes at the limit price or lower; a sell limit
+      order executes at the limit price or higher. Represented as
+      order_type = 'limit' in the orders table.
+    related_tables:
+      - orders
+
+  - term: Stop Order
+    definition: >
+      An order that becomes a market order once the stock reaches a specified
+      stop price. Used to limit losses or protect profits. Represented as
+      order_type = 'stop' in the orders table.
+    related_tables:
+      - orders
+
+  - term: Stop-Limit Order
+    definition: >
+      An order that combines features of a stop order and a limit order.
+      Once the stop price is reached, it becomes a limit order (not a
+      market order), providing price control but not guaranteeing
+      execution. Represented as order_type = 'stop_limit' in the orders
+      table.
+    related_tables:
+      - orders
+
+  - term: Beta
+    definition: >
+      A measure of a stock's volatility relative to the overall market
+      (or a specific index). Beta = Cov(stock_return, index_return) /
+      Var(index_return). A beta > 1 indicates greater volatility than
+      the market; < 1 indicates less.
+    related_tables:
+      - stock_prices
+      - index_compositions
+      - market_indices
+
+  - term: Sharpe Ratio
+    definition: >
+      A risk-adjusted return metric calculated as (portfolio return −
+      risk-free rate) / standard deviation of portfolio returns. A higher
+      Sharpe ratio indicates better risk-adjusted performance. Can be
+      approximated from daily returns in the stock_prices table.
+    related_tables:
+      - stock_prices
+
+  - term: Ex-Dividend Date
+    definition: >
+      The first date on which a stock trades without entitlement to the
+      most recently declared dividend. Investors who purchase shares on
+      or after this date will not receive the dividend. Stored as
+      ex_dividend_date in the dividends table.
+    related_tables:
+      - dividends
+
+  - term: Record Date
+    definition: >
+      The date established by a company to determine which shareholders
+      are eligible to receive a dividend or distribution. Only
+      shareholders of record on this date receive the payment.
+    related_tables:
+      - dividends
+
+  - term: Cost Basis
+    definition: >
+      The original value or purchase price of a stock, used to calculate
+      capital gains or losses. In this platform, the average_buy_price
+      in portfolio_holdings represents the weighted-average cost basis
+      per share.
+    related_tables:
+      - portfolio_holdings
+      - trades
+
+  - term: T+2 Settlement
+    definition: >
+      The standard settlement cycle for most equity trades, meaning the
+      transaction settles two business days after the trade date. For
+      example, a trade executed on Monday settles on Wednesday.
+    related_tables:
+      - trades
+
+  - term: Risk Tolerance
+    definition: >
+      A classification of a client's willingness and ability to accept
+      investment risk. This platform uses three levels — conservative,
+      moderate, and aggressive — stored as the risk_tolerance ENUM in
+      the clients table.
+    related_tables:
+      - clients
+
+  - term: Account Type
+    definition: >
+      The classification of a client's trading account. Supported types
+      on this platform are individual, joint, corporate, and retirement.
+      Stored as the account_type ENUM in the clients table.
+    related_tables:
+      - clients
+
+  - term: Portfolio Diversification
+    definition: >
+      The practice of spreading investments across different securities,
+      sectors, and asset classes to reduce risk. Measured by analysing
+      sector allocation and concentration of holdings within a portfolio.
+    related_tables:
+      - portfolio_holdings
+      - stocks
+      - sectors

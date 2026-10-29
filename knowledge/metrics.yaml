@@ -1,0 +1,533 @@
+# =============================================================================
+# Business Metrics & KPIs — Stock Trading Platform
+# Description: Parameterized SQL templates for common analytical queries.
+#   Parameters are denoted with :param_name (named) or {{param}} (template).
+# =============================================================================
+
+metrics:
+  # ---------------------------------------------------------------------------
+  # Portfolio Metrics
+  # ---------------------------------------------------------------------------
+  - name: portfolio_total_value
+    description: >
+      Total current market value of all holdings in a given portfolio,
+      including the client's cash balance.
+    sql_template: |
+      SELECT
+          p.id            AS portfolio_id,
+          p.name          AS portfolio_name,
+          COALESCE(SUM(ph.current_value), 0) AS holdings_value,
+          c.account_balance AS cash_balance,
+          COALESCE(SUM(ph.current_value), 0) + c.account_balance AS total_value
+      FROM portfolios p
+      JOIN clients c ON c.id = p.client_id
+      LEFT JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      WHERE p.id = :portfolio_id
+      GROUP BY p.id, p.name, c.account_balance;
+    category: portfolio
+
+  - name: portfolio_return_percentage
+    description: >
+      Percentage return of a portfolio calculated as
+      (current_value − cost_basis) / cost_basis × 100.
+    sql_template: |
+      SELECT
+          p.id   AS portfolio_id,
+          p.name AS portfolio_name,
+          SUM(ph.current_value) AS current_value,
+          SUM(ph.quantity * ph.average_buy_price) AS cost_basis,
+          ROUND(
+              (SUM(ph.current_value) - SUM(ph.quantity * ph.average_buy_price))
+              / NULLIF(SUM(ph.quantity * ph.average_buy_price), 0) * 100,
+              2
+          ) AS return_pct
+      FROM portfolios p
+      JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      WHERE p.id = :portfolio_id
+      GROUP BY p.id, p.name;
+    category: portfolio
+
+  - name: unrealized_pnl
+    description: >
+      Unrealized profit & loss per holding in a portfolio.
+      Positive values indicate gains; negative values indicate losses.
+    sql_template: |
+      SELECT
+          ph.id             AS holding_id,
+          s.ticker_symbol,
+          s.company_name,
+          ph.quantity,
+          ph.average_buy_price,
+          ph.current_value,
+          ph.current_value - (ph.quantity * ph.average_buy_price) AS unrealized_pnl
+      FROM portfolio_holdings ph
+      JOIN stocks s ON s.id = ph.stock_id
+      WHERE ph.portfolio_id = :portfolio_id
+      ORDER BY unrealized_pnl DESC;
+    category: portfolio
+
+  - name: sector_allocation
+    description: >
+      Breakdown of a portfolio's value by sector, expressed as both absolute
+      value and percentage of total portfolio value.
+    sql_template: |
+      SELECT
+          sec.name AS sector,
+          SUM(ph.current_value) AS sector_value,
+          ROUND(
+              SUM(ph.current_value) / NULLIF(SUM(SUM(ph.current_value)) OVER (), 0) * 100,
+              2
+          ) AS allocation_pct
+      FROM portfolio_holdings ph
+      JOIN stocks s   ON s.id   = ph.stock_id
+      JOIN sectors sec ON sec.id = s.sector_id
+      WHERE ph.portfolio_id = :portfolio_id
+      GROUP BY sec.name
+      ORDER BY sector_value DESC;
+    category: portfolio
+
+  # ---------------------------------------------------------------------------
+  # Trading Metrics
+  # ---------------------------------------------------------------------------
+  - name: daily_trading_volume
+    description: >
+      Total number of shares and gross dollar amount traded across the
+      platform on a given date.
+    sql_template: |
+      SELECT
+          trade_date,
+          COUNT(*)          AS trade_count,
+          SUM(quantity)      AS total_shares,
+          SUM(total_amount)  AS total_dollar_volume
+      FROM trades
+      WHERE trade_date = :trade_date
+      GROUP BY trade_date;
+    category: trading
+
+  - name: total_commission_earned
+    description: >
+      Total commission revenue earned by all brokers within a date range.
+    sql_template: |
+      SELECT
+          SUM(commission)  AS total_commission,
+          COUNT(*)         AS trade_count,
+          ROUND(AVG(commission), 2) AS avg_commission_per_trade
+      FROM trades
+      WHERE trade_date BETWEEN :start_date AND :end_date;
+    category: trading
+
+  - name: average_trade_size
+    description: >
+      Average dollar value per trade within a date range.
+    sql_template: |
+      SELECT
+          ROUND(AVG(total_amount), 2) AS avg_trade_size,
+          ROUND(AVG(quantity), 0)     AS avg_shares_per_trade
+      FROM trades
+      WHERE trade_date BETWEEN :start_date AND :end_date;
+    category: trading
+
+  - name: most_traded_stocks
+    description: >
+      Top N most actively traded stocks by share volume over a date range.
+    sql_template: |
+      SELECT
+          s.ticker_symbol,
+          s.company_name,
+          SUM(t.quantity)      AS total_volume,
+          COUNT(t.id)          AS trade_count,
+          SUM(t.total_amount)  AS total_dollar_volume
+      FROM trades t
+      JOIN stocks s ON s.id = t.stock_id
+      WHERE t.trade_date BETWEEN :start_date AND :end_date
+      GROUP BY s.ticker_symbol, s.company_name
+      ORDER BY total_volume DESC
+      LIMIT :top_n;
+    category: trading
+
+  - name: order_fill_rate
+    description: >
+      Percentage of orders that were fully filled vs. total orders placed
+      within a date range.
+    sql_template: |
+      SELECT
+          COUNT(*) AS total_orders,
+          COUNT(*) FILTER (WHERE status = 'filled') AS filled_orders,
+          ROUND(
+              COUNT(*) FILTER (WHERE status = 'filled')::NUMERIC
+              / NULLIF(COUNT(*), 0) * 100,
+              2
+          ) AS fill_rate_pct
+      FROM orders
+      WHERE created_at::DATE BETWEEN :start_date AND :end_date;
+    category: trading
+
+  - name: average_time_to_fill
+    description: >
+      Average time between order placement and the last trade execution that
+      completed the fill, for fully filled orders.
+    sql_template: |
+      SELECT
+          ROUND(
+              AVG(EXTRACT(EPOCH FROM (t.max_trade_ts - o.created_at)) / 60.0),
+              2
+          ) AS avg_minutes_to_fill
+      FROM orders o
+      JOIN (
+          SELECT order_id, MAX(created_at) AS max_trade_ts
+          FROM trades
+          GROUP BY order_id
+      ) t ON t.order_id = o.id
+      WHERE o.status = 'filled'
+        AND o.created_at::DATE BETWEEN :start_date AND :end_date;
+    category: trading
+
+  - name: cancellation_rate
+    description: >
+      Percentage of orders cancelled out of all orders placed in a date range.
+    sql_template: |
+      SELECT
+          COUNT(*) AS total_orders,
+          COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_orders,
+          ROUND(
+              COUNT(*) FILTER (WHERE status = 'cancelled')::NUMERIC
+              / NULLIF(COUNT(*), 0) * 100,
+              2
+          ) AS cancellation_rate_pct
+      FROM orders
+      WHERE created_at::DATE BETWEEN :start_date AND :end_date;
+    category: trading
+
+  - name: vwap
+    description: >
+      Volume-Weighted Average Price (VWAP) for a stock on a given date.
+      Calculated from daily OHLCV data as (typical_price × volume) / volume.
+    sql_template: |
+      SELECT
+          s.ticker_symbol,
+          sp.trade_date,
+          ROUND(
+              SUM((sp.high_price + sp.low_price + sp.close_price) / 3.0 * sp.volume)
+              / NULLIF(SUM(sp.volume), 0),
+              4
+          ) AS vwap
+      FROM stock_prices sp
+      JOIN stocks s ON s.id = sp.stock_id
+      WHERE s.ticker_symbol = :ticker
+        AND sp.trade_date = :trade_date
+      GROUP BY s.ticker_symbol, sp.trade_date;
+    category: trading
+
+  # ---------------------------------------------------------------------------
+  # Market Metrics
+  # ---------------------------------------------------------------------------
+  - name: stock_daily_return
+    description: >
+      Daily percentage return for a stock computed from adjusted close prices.
+    sql_template: |
+      SELECT
+          s.ticker_symbol,
+          sp.trade_date,
+          sp.adjusted_close,
+          LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date) AS prev_close,
+          ROUND(
+              (sp.adjusted_close - LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date))
+              / NULLIF(LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date), 0) * 100,
+              4
+          ) AS daily_return_pct
+      FROM stock_prices sp
+      JOIN stocks s ON s.id = sp.stock_id
+      WHERE s.ticker_symbol = :ticker
+        AND sp.trade_date BETWEEN :start_date AND :end_date
+      ORDER BY sp.trade_date;
+    category: market
+
+  - name: stock_volatility
+    description: >
+      Annualised volatility of a stock's daily returns over a given period.
+      Assumes ~252 trading days per year.
+    sql_template: |
+      WITH daily_returns AS (
+          SELECT
+              sp.trade_date,
+              (sp.adjusted_close - LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date))
+              / NULLIF(LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date), 0) AS daily_ret
+          FROM stock_prices sp
+          JOIN stocks s ON s.id = sp.stock_id
+          WHERE s.ticker_symbol = :ticker
+            AND sp.trade_date BETWEEN :start_date AND :end_date
+      )
+      SELECT
+          ROUND(STDDEV(daily_ret) * SQRT(252) * 100, 4) AS annualised_volatility_pct
+      FROM daily_returns
+      WHERE daily_ret IS NOT NULL;
+    category: market
+
+  - name: fifty_two_week_high_low
+    description: >
+      52-week (trailing 252 trading days) high and low closing prices for a stock.
+    sql_template: |
+      SELECT
+          s.ticker_symbol,
+          s.company_name,
+          MAX(sp.high_price)  AS "52_week_high",
+          MIN(sp.low_price)   AS "52_week_low",
+          MAX(sp.high_price) - MIN(sp.low_price) AS price_range
+      FROM stock_prices sp
+      JOIN stocks s ON s.id = sp.stock_id
+      WHERE s.ticker_symbol = :ticker
+        AND sp.trade_date >= CURRENT_DATE - INTERVAL '1 year'
+      GROUP BY s.ticker_symbol, s.company_name;
+    category: market
+
+  - name: market_cap_distribution
+    description: >
+      Distribution of stocks by market capitalisation category
+      (mega-cap, large-cap, mid-cap, small-cap, micro-cap).
+    sql_template: |
+      SELECT
+          CASE
+              WHEN market_cap >= 200000000000  THEN 'Mega Cap (≥200B)'
+              WHEN market_cap >= 10000000000   THEN 'Large Cap (10B–200B)'
+              WHEN market_cap >= 2000000000    THEN 'Mid Cap (2B–10B)'
+              WHEN market_cap >= 300000000     THEN 'Small Cap (300M–2B)'
+              ELSE 'Micro Cap (<300M)'
+          END AS cap_category,
+          COUNT(*) AS stock_count,
+          ROUND(SUM(market_cap) / 1e9, 2) AS total_market_cap_billions
+      FROM stocks
+      WHERE is_active = TRUE
+      GROUP BY cap_category
+      ORDER BY total_market_cap_billions DESC;
+    category: market
+
+  - name: beta_vs_index
+    description: >
+      Beta of a stock relative to a market index, computed from daily returns
+      over a date range. Beta = Cov(stock, index) / Var(index).
+    sql_template: |
+      WITH stock_ret AS (
+          SELECT
+              sp.trade_date,
+              (sp.adjusted_close - LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date))
+              / NULLIF(LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date), 0) AS ret
+          FROM stock_prices sp
+          JOIN stocks s ON s.id = sp.stock_id
+          WHERE s.ticker_symbol = :ticker
+            AND sp.trade_date BETWEEN :start_date AND :end_date
+      ),
+      index_ret AS (
+          SELECT
+              sp.trade_date,
+              (sp.adjusted_close - LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date))
+              / NULLIF(LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date), 0) AS ret
+          FROM stock_prices sp
+          JOIN index_compositions ic ON ic.stock_id = sp.stock_id
+          JOIN market_indices mi ON mi.id = ic.index_id
+          WHERE mi.code = :index_code
+            AND sp.trade_date BETWEEN :start_date AND :end_date
+      )
+      SELECT
+          ROUND(
+              COVAR_POP(sr.ret, ir.ret) / NULLIF(VAR_POP(ir.ret), 0),
+              4
+          ) AS beta
+      FROM stock_ret sr
+      JOIN index_ret ir ON ir.trade_date = sr.trade_date
+      WHERE sr.ret IS NOT NULL AND ir.ret IS NOT NULL;
+    category: market
+
+  - name: sharpe_ratio_approx
+    description: >
+      Approximate annualised Sharpe ratio for a stock using daily returns.
+      Sharpe ≈ (avg_daily_return − risk_free_daily) / stddev(daily_return) × √252.
+      Risk-free rate parameter defaults to 0.05 (5 % annual).
+    sql_template: |
+      WITH daily_returns AS (
+          SELECT
+              (sp.adjusted_close - LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date))
+              / NULLIF(LAG(sp.adjusted_close) OVER (ORDER BY sp.trade_date), 0) AS daily_ret
+          FROM stock_prices sp
+          JOIN stocks s ON s.id = sp.stock_id
+          WHERE s.ticker_symbol = :ticker
+            AND sp.trade_date BETWEEN :start_date AND :end_date
+      )
+      SELECT
+          ROUND(
+              (AVG(daily_ret) - (:risk_free_rate / 252.0))
+              / NULLIF(STDDEV(daily_ret), 0) * SQRT(252),
+              4
+          ) AS sharpe_ratio
+      FROM daily_returns
+      WHERE daily_ret IS NOT NULL;
+    category: market
+
+  # ---------------------------------------------------------------------------
+  # Client Metrics
+  # ---------------------------------------------------------------------------
+  - name: client_account_value
+    description: >
+      Total account value for a client: cash balance plus the market value
+      of all portfolio holdings.
+    sql_template: |
+      SELECT
+          c.id                        AS client_id,
+          c.first_name || ' ' || c.last_name AS client_name,
+          c.account_balance           AS cash_balance,
+          COALESCE(SUM(ph.current_value), 0) AS holdings_value,
+          c.account_balance + COALESCE(SUM(ph.current_value), 0) AS total_account_value
+      FROM clients c
+      LEFT JOIN portfolios p         ON p.client_id  = c.id
+      LEFT JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      WHERE c.id = :client_id
+      GROUP BY c.id, c.first_name, c.last_name, c.account_balance;
+    category: client
+
+  - name: top_clients_by_aum
+    description: >
+      Top N clients ranked by total assets under management (AUM),
+      defined as cash balance + holdings market value.
+    sql_template: |
+      SELECT
+          c.id                        AS client_id,
+          c.first_name || ' ' || c.last_name AS client_name,
+          c.account_balance           AS cash_balance,
+          COALESCE(SUM(ph.current_value), 0) AS holdings_value,
+          c.account_balance + COALESCE(SUM(ph.current_value), 0) AS aum
+      FROM clients c
+      LEFT JOIN portfolios p         ON p.client_id  = c.id
+      LEFT JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      GROUP BY c.id, c.first_name, c.last_name, c.account_balance
+      ORDER BY aum DESC
+      LIMIT :top_n;
+    category: client
+
+  - name: client_pnl
+    description: >
+      Realised profit & loss for a client based on completed (filled) sell
+      trades within a date range, minus cost basis of bought shares.
+    sql_template: |
+      SELECT
+          c.id                        AS client_id,
+          c.first_name || ' ' || c.last_name AS client_name,
+          SUM(CASE WHEN t.side = 'sell' THEN t.net_amount ELSE 0 END)
+          - SUM(CASE WHEN t.side = 'buy' THEN t.net_amount ELSE 0 END) AS realised_pnl
+      FROM trades t
+      JOIN clients c ON c.id = t.client_id
+      WHERE t.client_id = :client_id
+        AND t.trade_date BETWEEN :start_date AND :end_date
+      GROUP BY c.id, c.first_name, c.last_name;
+    category: client
+
+  # ---------------------------------------------------------------------------
+  # Risk Metrics
+  # ---------------------------------------------------------------------------
+  - name: portfolio_concentration
+    description: >
+      Largest single-holding weight in a portfolio (concentration risk).
+      A high percentage suggests poor diversification.
+    sql_template: |
+      SELECT
+          ph.portfolio_id,
+          s.ticker_symbol,
+          s.company_name,
+          ph.current_value,
+          ROUND(
+              ph.current_value / NULLIF(SUM(ph.current_value) OVER (PARTITION BY ph.portfolio_id), 0) * 100,
+              2
+          ) AS weight_pct
+      FROM portfolio_holdings ph
+      JOIN stocks s ON s.id = ph.stock_id
+      WHERE ph.portfolio_id = :portfolio_id
+      ORDER BY weight_pct DESC
+      LIMIT 1;
+    category: risk
+
+  - name: dividend_yield
+    description: >
+      Trailing 12-month dividend yield for a stock, calculated as
+      (sum of dividends paid in last 12 months) / latest close price × 100.
+    sql_template: |
+      WITH ttm_div AS (
+          SELECT
+              d.stock_id,
+              SUM(d.dividend_per_share) AS ttm_dividends
+          FROM dividends d
+          WHERE d.payment_date >= CURRENT_DATE - INTERVAL '1 year'
+            AND d.stock_id = (SELECT id FROM stocks WHERE ticker_symbol = :ticker)
+          GROUP BY d.stock_id
+      ),
+      latest_price AS (
+          SELECT sp.close_price
+          FROM stock_prices sp
+          JOIN stocks s ON s.id = sp.stock_id
+          WHERE s.ticker_symbol = :ticker
+          ORDER BY sp.trade_date DESC
+          LIMIT 1
+      )
+      SELECT
+          :ticker AS ticker_symbol,
+          td.ttm_dividends,
+          lp.close_price,
+          ROUND(td.ttm_dividends / NULLIF(lp.close_price, 0) * 100, 4) AS dividend_yield_pct
+      FROM ttm_div td, latest_price lp;
+    category: risk
+
+  - name: total_dividends_paid
+    description: >
+      Total dividend payments received by a client across all their
+      portfolio holdings over a date range.
+    sql_template: |
+      SELECT
+          c.id                        AS client_id,
+          c.first_name || ' ' || c.last_name AS client_name,
+          SUM(d.dividend_per_share * ph.quantity) AS total_dividends_received
+      FROM clients c
+      JOIN portfolios p          ON p.client_id    = c.id
+      JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      JOIN dividends d           ON d.stock_id     = ph.stock_id
+      WHERE c.id = :client_id
+        AND d.payment_date BETWEEN :start_date AND :end_date
+      GROUP BY c.id, c.first_name, c.last_name;
+    category: risk
+
+  - name: broker_commission_summary
+    description: >
+      Commission earned by each broker within a date range, with trade
+      counts and average commission.
+    sql_template: |
+      SELECT
+          b.id            AS broker_id,
+          b.name          AS broker_name,
+          COUNT(t.id)     AS trade_count,
+          SUM(t.commission)   AS total_commission,
+          ROUND(AVG(t.commission), 2) AS avg_commission
+      FROM trades t
+      JOIN brokers b ON b.id = t.broker_id
+      WHERE t.trade_date BETWEEN :start_date AND :end_date
+      GROUP BY b.id, b.name
+      ORDER BY total_commission DESC;
+    category: trading
+
+  - name: client_risk_exposure
+    description: >
+      Summary of a client's exposure by sector, useful for risk assessment
+      and diversification analysis.
+    sql_template: |
+      SELECT
+          sec.name AS sector,
+          COUNT(DISTINCT ph.stock_id) AS num_stocks,
+          SUM(ph.current_value) AS exposure_value,
+          ROUND(
+              SUM(ph.current_value) / NULLIF(SUM(SUM(ph.current_value)) OVER (), 0) * 100,
+              2
+          ) AS exposure_pct
+      FROM clients c
+      JOIN portfolios p          ON p.client_id    = c.id
+      JOIN portfolio_holdings ph ON ph.portfolio_id = p.id
+      JOIN stocks s              ON s.id           = ph.stock_id
+      JOIN sectors sec           ON sec.id         = s.sector_id
+      WHERE c.id = :client_id
+      GROUP BY sec.name
+      ORDER BY exposure_value DESC;
+    category: risk

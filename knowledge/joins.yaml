@@ -1,0 +1,361 @@
+# =============================================================================
+# Join Paths — Stock Trading Platform
+# Description: All valid join paths between tables, covering direct foreign-key
+#   relationships and useful multi-hop paths for complex analytical queries.
+# =============================================================================
+
+joins:
+  # ---------------------------------------------------------------------------
+  # Direct Foreign-Key Joins
+  # ---------------------------------------------------------------------------
+
+  # stocks ↔ reference tables
+  - from_table: stocks
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: "stocks.sector_id = sectors.id"
+    description: >
+      Join stocks to their industry sector classification.
+      LEFT JOIN because sector_id is nullable.
+
+  - from_table: stocks
+    to_table: exchanges
+    join_type: INNER JOIN
+    join_condition: "stocks.exchange_id = exchanges.id"
+    description: >
+      Join stocks to the exchange on which they are listed.
+
+  # stock_prices → stocks
+  - from_table: stock_prices
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "stock_prices.stock_id = stocks.id"
+    description: >
+      Join daily price data to the stock master record.
+
+  # clients → brokers
+  - from_table: clients
+    to_table: brokers
+    join_type: INNER JOIN
+    join_condition: "clients.broker_id = brokers.id"
+    description: >
+      Join clients to the broker assigned to manage their account.
+
+  # portfolios → clients
+  - from_table: portfolios
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: "portfolios.client_id = clients.id"
+    description: >
+      Join portfolios to their owning client.
+
+  # portfolio_holdings → portfolios
+  - from_table: portfolio_holdings
+    to_table: portfolios
+    join_type: INNER JOIN
+    join_condition: "portfolio_holdings.portfolio_id = portfolios.id"
+    description: >
+      Join individual holdings to the portfolio they belong to.
+
+  # portfolio_holdings → stocks
+  - from_table: portfolio_holdings
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "portfolio_holdings.stock_id = stocks.id"
+    description: >
+      Join holdings to the stock master for ticker symbols and company names.
+
+  # orders → clients
+  - from_table: orders
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: "orders.client_id = clients.id"
+    description: >
+      Join orders to the client who placed them.
+
+  # orders → stocks
+  - from_table: orders
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "orders.stock_id = stocks.id"
+    description: >
+      Join orders to the stock being traded.
+
+  # trades → orders
+  - from_table: trades
+    to_table: orders
+    join_type: INNER JOIN
+    join_condition: "trades.order_id = orders.id"
+    description: >
+      Join executed trades back to the originating order.
+
+  # trades → stocks
+  - from_table: trades
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "trades.stock_id = stocks.id"
+    description: >
+      Join trades to the stock that was traded.
+
+  # trades → clients
+  - from_table: trades
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: "trades.client_id = clients.id"
+    description: >
+      Join trades to the client involved in the trade.
+
+  # trades → brokers
+  - from_table: trades
+    to_table: brokers
+    join_type: INNER JOIN
+    join_condition: "trades.broker_id = brokers.id"
+    description: >
+      Join trades to the broker who facilitated the execution.
+
+  # dividends → stocks
+  - from_table: dividends
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "dividends.stock_id = stocks.id"
+    description: >
+      Join dividend events to the stock that declared them.
+
+  # watchlists → clients
+  - from_table: watchlists
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: "watchlists.client_id = clients.id"
+    description: >
+      Join watchlists to the client who owns them.
+
+  # watchlist_items → watchlists
+  - from_table: watchlist_items
+    to_table: watchlists
+    join_type: INNER JOIN
+    join_condition: "watchlist_items.watchlist_id = watchlists.id"
+    description: >
+      Join watchlist items to their parent watchlist.
+
+  # watchlist_items → stocks
+  - from_table: watchlist_items
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "watchlist_items.stock_id = stocks.id"
+    description: >
+      Join watchlist items to the stock they reference.
+
+  # market_indices → exchanges
+  - from_table: market_indices
+    to_table: exchanges
+    join_type: INNER JOIN
+    join_condition: "market_indices.exchange_id = exchanges.id"
+    description: >
+      Join market indices to the exchange they belong to.
+
+  # index_compositions → market_indices
+  - from_table: index_compositions
+    to_table: market_indices
+    join_type: INNER JOIN
+    join_condition: "index_compositions.index_id = market_indices.id"
+    description: >
+      Join index constituent records to the parent index.
+
+  # index_compositions → stocks
+  - from_table: index_compositions
+    to_table: stocks
+    join_type: INNER JOIN
+    join_condition: "index_compositions.stock_id = stocks.id"
+    description: >
+      Join index constituents to the stock master record.
+
+  # ---------------------------------------------------------------------------
+  # Multi-Hop / Composite Join Paths
+  # ---------------------------------------------------------------------------
+
+  # trades → stocks → sectors
+  - from_table: trades
+    to_table: sectors
+    join_type: INNER JOIN
+    join_condition: >
+      trades.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: trades → stocks → sectors.
+      Enables sector-level trade analysis (e.g., total volume per sector).
+      Requires intermediate join through the stocks table.
+
+  # trades → stocks → exchanges
+  - from_table: trades
+    to_table: exchanges
+    join_type: INNER JOIN
+    join_condition: >
+      trades.stock_id = stocks.id
+      AND stocks.exchange_id = exchanges.id
+    description: >
+      Two-hop join: trades → stocks → exchanges.
+      Enables exchange-level trade analysis.
+      Requires intermediate join through the stocks table.
+
+  # portfolio_holdings → stocks → sectors
+  - from_table: portfolio_holdings
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      portfolio_holdings.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: portfolio_holdings → stocks → sectors.
+      Enables sector allocation analysis within portfolios.
+      Requires intermediate join through the stocks table.
+
+  # portfolio_holdings → stocks → exchanges
+  - from_table: portfolio_holdings
+    to_table: exchanges
+    join_type: INNER JOIN
+    join_condition: >
+      portfolio_holdings.stock_id = stocks.id
+      AND stocks.exchange_id = exchanges.id
+    description: >
+      Two-hop join: portfolio_holdings → stocks → exchanges.
+      Shows which exchanges a portfolio's holdings are listed on.
+      Requires intermediate join through the stocks table.
+
+  # portfolio_holdings → portfolios → clients
+  - from_table: portfolio_holdings
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: >
+      portfolio_holdings.portfolio_id = portfolios.id
+      AND portfolios.client_id = clients.id
+    description: >
+      Two-hop join: portfolio_holdings → portfolios → clients.
+      Enables client-level holdings analysis across all portfolios.
+      Requires intermediate join through the portfolios table.
+
+  # portfolio_holdings → portfolios → clients → brokers
+  - from_table: portfolio_holdings
+    to_table: brokers
+    join_type: INNER JOIN
+    join_condition: >
+      portfolio_holdings.portfolio_id = portfolios.id
+      AND portfolios.client_id = clients.id
+      AND clients.broker_id = brokers.id
+    description: >
+      Three-hop join: portfolio_holdings → portfolios → clients → brokers.
+      Shows the broker responsible for each holding.
+      Requires intermediate joins through portfolios and clients.
+
+  # orders → clients → brokers
+  - from_table: orders
+    to_table: brokers
+    join_type: INNER JOIN
+    join_condition: >
+      orders.client_id = clients.id
+      AND clients.broker_id = brokers.id
+    description: >
+      Two-hop join: orders → clients → brokers.
+      Links orders to the broker managing the client's account.
+      Requires intermediate join through the clients table.
+
+  # orders → stocks → sectors
+  - from_table: orders
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      orders.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: orders → stocks → sectors.
+      Enables sector-level order analysis.
+      Requires intermediate join through the stocks table.
+
+  # dividends → stocks → sectors
+  - from_table: dividends
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      dividends.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: dividends → stocks → sectors.
+      Enables analysis of dividend payouts by sector.
+      Requires intermediate join through the stocks table.
+
+  # watchlist_items → stocks → sectors
+  - from_table: watchlist_items
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      watchlist_items.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: watchlist_items → stocks → sectors.
+      Shows sector distribution of a client's watchlist.
+      Requires intermediate join through the stocks table.
+
+  # watchlist_items → watchlists → clients
+  - from_table: watchlist_items
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: >
+      watchlist_items.watchlist_id = watchlists.id
+      AND watchlists.client_id = clients.id
+    description: >
+      Two-hop join: watchlist_items → watchlists → clients.
+      Links individual watchlist items back to the client.
+      Requires intermediate join through the watchlists table.
+
+  # index_compositions → stocks → sectors
+  - from_table: index_compositions
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      index_compositions.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: index_compositions → stocks → sectors.
+      Enables sector breakdown of an index's constituents.
+      Requires intermediate join through the stocks table.
+
+  # stock_prices → stocks → sectors
+  - from_table: stock_prices
+    to_table: sectors
+    join_type: LEFT JOIN
+    join_condition: >
+      stock_prices.stock_id = stocks.id
+      AND stocks.sector_id = sectors.id
+    description: >
+      Two-hop join: stock_prices → stocks → sectors.
+      Enables sector-level price and return analysis.
+      Requires intermediate join through the stocks table.
+
+  # stock_prices → stocks → exchanges
+  - from_table: stock_prices
+    to_table: exchanges
+    join_type: INNER JOIN
+    join_condition: >
+      stock_prices.stock_id = stocks.id
+      AND stocks.exchange_id = exchanges.id
+    description: >
+      Two-hop join: stock_prices → stocks → exchanges.
+      Enables exchange-level price analysis.
+      Requires intermediate join through the stocks table.
+
+  # trades → orders → clients (alternate path)
+  - from_table: trades
+    to_table: clients
+    join_type: INNER JOIN
+    join_condition: "trades.client_id = clients.id"
+    description: >
+      Direct join from trades to clients using the denormalized client_id
+      on the trades table. Faster than going through orders.
+
+  # trades → clients → brokers (via trade.client_id)
+  - from_table: trades
+    to_table: brokers
+    join_type: INNER JOIN
+    join_condition: "trades.broker_id = brokers.id"
+    description: >
+      Direct join from trades to brokers using the denormalized broker_id
+      on the trades table.

@@ -1,0 +1,873 @@
+# =============================================================================
+# Organizational Knowledge File (OKF) — Database Schema
+# Database: trading_platform (PostgreSQL)
+# Description: Complete schema reference for the stock trading platform.
+# =============================================================================
+
+database: trading_platform
+engine: postgresql
+
+tables:
+  # ---------------------------------------------------------------------------
+  # Reference / Dimension Tables
+  # ---------------------------------------------------------------------------
+  - table_name: exchanges
+    description: >
+      Stock exchanges around the world where securities are listed and traded.
+      Each exchange operates in a specific country and timezone.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the exchange.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: name
+        type: VARCHAR(255)
+        description: Full name of the exchange (e.g., "New York Stock Exchange").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: code
+        type: VARCHAR(10)
+        description: Short code / MIC for the exchange (e.g., "NYSE", "NASDAQ").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: country
+        type: VARCHAR(100)
+        description: Country where the exchange is domiciled.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: timezone
+        type: VARCHAR(50)
+        description: IANA timezone identifier for the exchange (e.g., "America/New_York").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: is_active
+        type: BOOLEAN
+        description: Whether the exchange is currently active and accepting trades.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the exchange record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: sectors
+    description: >
+      Industry sectors used to classify stocks (e.g., Technology, Healthcare,
+      Financials). Enables sector-level analysis and allocation reporting.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the sector.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: name
+        type: VARCHAR(255)
+        description: Name of the sector (e.g., "Technology", "Energy").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: description
+        type: TEXT
+        description: Longer description of the sector and the types of companies it includes.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the sector record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Securities
+  # ---------------------------------------------------------------------------
+  - table_name: stocks
+    description: >
+      Master list of stocks (equities) available on the platform. Each stock
+      belongs to one sector and is listed on one exchange.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the stock.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: ticker_symbol
+        type: VARCHAR(10)
+        description: The ticker / trading symbol (e.g., "AAPL", "TSLA").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: company_name
+        type: VARCHAR(255)
+        description: Full legal name of the issuing company.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: sector_id
+        type: INTEGER
+        description: Foreign key to the sector this stock belongs to.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: true
+        references: sectors.id
+      - name: exchange_id
+        type: INTEGER
+        description: Foreign key to the exchange where this stock is listed.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: exchanges.id
+      - name: market_cap
+        type: NUMERIC(20, 2)
+        description: Current market capitalisation in USD.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: ipo_date
+        type: DATE
+        description: Date of the company's initial public offering.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: is_active
+        type: BOOLEAN
+        description: Whether the stock is currently active and tradeable.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the stock record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: updated_at
+        type: TIMESTAMP
+        description: Timestamp when the stock record was last updated.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: stock_prices
+    description: >
+      Daily OHLCV price data for each stock. One row per stock per trading day.
+      Used for charting, technical analysis, and return calculations.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the price record.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock this price belongs to.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: trade_date
+        type: DATE
+        description: The trading date for this price bar.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: open_price
+        type: NUMERIC(12, 4)
+        description: Opening price of the stock on this date.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: high_price
+        type: NUMERIC(12, 4)
+        description: Highest price reached during the trading day.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: low_price
+        type: NUMERIC(12, 4)
+        description: Lowest price reached during the trading day.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: close_price
+        type: NUMERIC(12, 4)
+        description: Closing price of the stock on this date.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: adjusted_close
+        type: NUMERIC(12, 4)
+        description: >
+          Close price adjusted for dividends and stock splits.
+          Preferred for return calculations over long periods.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: volume
+        type: BIGINT
+        description: Total number of shares traded during the day.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the price record was inserted.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Participants
+  # ---------------------------------------------------------------------------
+  - table_name: brokers
+    description: >
+      Registered brokers who facilitate trades on behalf of clients.
+      Each broker has a license number and a commission rate.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the broker.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: name
+        type: VARCHAR(255)
+        description: Full name of the broker or brokerage firm.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: license_number
+        type: VARCHAR(50)
+        description: Regulatory license number of the broker.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: email
+        type: VARCHAR(255)
+        description: Email address of the broker.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: phone
+        type: VARCHAR(20)
+        description: Contact phone number for the broker.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: commission_rate
+        type: NUMERIC(5, 4)
+        description: >
+          Default commission rate as a decimal (e.g., 0.0015 = 0.15 %).
+          Applied to trade total_amount to compute commission.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: is_active
+        type: BOOLEAN
+        description: Whether the broker is currently active.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the broker record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: clients
+    description: >
+      Platform clients (investors / traders) who place orders and hold
+      portfolios. Each client is assigned a broker and has an account type
+      and risk tolerance classification.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the client.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: first_name
+        type: VARCHAR(100)
+        description: Client's first name.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: last_name
+        type: VARCHAR(100)
+        description: Client's last name.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: email
+        type: VARCHAR(255)
+        description: Client's email address (unique).
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: phone
+        type: VARCHAR(20)
+        description: Client's phone number.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: date_of_birth
+        type: DATE
+        description: Client's date of birth, used for KYC and age verification.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: account_type
+        type: ENUM('individual', 'joint', 'corporate', 'retirement')
+        description: >
+          Type of trading account.
+          Values: individual, joint, corporate, retirement.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: risk_tolerance
+        type: ENUM('conservative', 'moderate', 'aggressive')
+        description: >
+          Client's self-declared risk tolerance level.
+          Values: conservative, moderate, aggressive.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: broker_id
+        type: INTEGER
+        description: Foreign key to the broker assigned to this client.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: brokers.id
+      - name: account_balance
+        type: NUMERIC(18, 2)
+        description: Current cash balance in the client's trading account (USD).
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the client account was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: updated_at
+        type: TIMESTAMP
+        description: Timestamp when the client record was last updated.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Portfolios & Holdings
+  # ---------------------------------------------------------------------------
+  - table_name: portfolios
+    description: >
+      Named portfolios belonging to clients. A client can have multiple
+      portfolios (e.g., "Growth", "Retirement", "Dividend Income").
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the portfolio.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: client_id
+        type: INTEGER
+        description: Foreign key to the owning client.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: clients.id
+      - name: name
+        type: VARCHAR(255)
+        description: User-defined name for the portfolio.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: description
+        type: TEXT
+        description: Optional description of the portfolio's investment strategy.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the portfolio was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: updated_at
+        type: TIMESTAMP
+        description: Timestamp when the portfolio was last updated.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: portfolio_holdings
+    description: >
+      Current stock positions within a portfolio. Tracks the quantity held,
+      the average purchase price, and the latest market value.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the holding record.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: portfolio_id
+        type: INTEGER
+        description: Foreign key to the portfolio this holding belongs to.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: portfolios.id
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock being held.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: quantity
+        type: INTEGER
+        description: Number of shares currently held.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: average_buy_price
+        type: NUMERIC(12, 4)
+        description: Weighted-average cost basis per share.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: current_value
+        type: NUMERIC(18, 2)
+        description: Latest market value of the holding (quantity × current price).
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: last_updated
+        type: TIMESTAMP
+        description: Timestamp when the holding was last re-valued.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Orders & Trades
+  # ---------------------------------------------------------------------------
+  - table_name: orders
+    description: >
+      Buy / sell orders placed by clients. An order may be partially or fully
+      filled, cancelled, or remain pending. Each order targets a specific
+      stock with a given order type (market / limit / stop / stop-limit) and
+      side (buy / sell).
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the order.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: client_id
+        type: INTEGER
+        description: Foreign key to the client who placed the order.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: clients.id
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock being ordered.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: order_type
+        type: ENUM('market', 'limit', 'stop', 'stop_limit')
+        description: >
+          Type of order.
+          Values: market, limit, stop, stop_limit.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: side
+        type: ENUM('buy', 'sell')
+        description: "Whether the order is to buy or sell shares."
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: quantity
+        type: INTEGER
+        description: Total number of shares requested in the order.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: price
+        type: NUMERIC(12, 4)
+        description: >
+          Limit / stop price specified in the order.
+          NULL for market orders.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: status
+        type: ENUM('pending', 'partially_filled', 'filled', 'cancelled', 'rejected')
+        description: >
+          Current lifecycle status of the order.
+          Values: pending, partially_filled, filled, cancelled, rejected.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: filled_quantity
+        type: INTEGER
+        description: Number of shares that have been filled so far.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: filled_price
+        type: NUMERIC(12, 4)
+        description: Weighted-average fill price for filled shares.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the order was placed.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: updated_at
+        type: TIMESTAMP
+        description: Timestamp when the order was last modified.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: trades
+    description: >
+      Executed trades (fills) resulting from orders. Each trade records the
+      exact quantity, price, commission, and net amount. A single order can
+      produce multiple trades (partial fills).
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the trade.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: order_id
+        type: INTEGER
+        description: Foreign key to the originating order.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: orders.id
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock that was traded.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: client_id
+        type: INTEGER
+        description: Foreign key to the client involved in the trade.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: clients.id
+      - name: broker_id
+        type: INTEGER
+        description: Foreign key to the broker who facilitated the trade.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: brokers.id
+      - name: side
+        type: ENUM('buy', 'sell')
+        description: "Whether this trade was a buy or a sell."
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: quantity
+        type: INTEGER
+        description: Number of shares executed in this trade.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: price
+        type: NUMERIC(12, 4)
+        description: Execution price per share.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: total_amount
+        type: NUMERIC(18, 2)
+        description: "Gross trade value: quantity × price."
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: commission
+        type: NUMERIC(12, 2)
+        description: Broker commission charged on this trade.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: net_amount
+        type: NUMERIC(18, 2)
+        description: >
+          Net amount after commission.
+          For buys: total_amount + commission.
+          For sells: total_amount - commission.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: trade_date
+        type: DATE
+        description: Date the trade was executed.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: settlement_date
+        type: DATE
+        description: Date the trade settles (typically T+2).
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the trade record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Dividends
+  # ---------------------------------------------------------------------------
+  - table_name: dividends
+    description: >
+      Dividend events declared by companies. Tracks the full lifecycle from
+      declaration through ex-dividend date, record date, and payment date.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the dividend record.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock paying the dividend.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: declaration_date
+        type: DATE
+        description: Date the dividend was officially declared.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: ex_dividend_date
+        type: DATE
+        description: >
+          First date the stock trades without entitlement to the dividend.
+          Buyers on or after this date do not receive the payment.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: record_date
+        type: DATE
+        description: >
+          Date on which shareholders of record are determined for dividend
+          payment eligibility.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: payment_date
+        type: DATE
+        description: Date the dividend is actually paid out to shareholders.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: dividend_per_share
+        type: NUMERIC(10, 4)
+        description: Dollar amount of dividend per share.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the dividend record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Watchlists
+  # ---------------------------------------------------------------------------
+  - table_name: watchlists
+    description: >
+      Named watchlists created by clients to track stocks of interest.
+      A client can have multiple watchlists.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the watchlist.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: client_id
+        type: INTEGER
+        description: Foreign key to the client who owns the watchlist.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: clients.id
+      - name: name
+        type: VARCHAR(255)
+        description: User-defined name for the watchlist (e.g., "Tech Picks").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the watchlist was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: watchlist_items
+    description: >
+      Individual stocks added to a watchlist. Join table between watchlists
+      and stocks.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the watchlist item.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: watchlist_id
+        type: INTEGER
+        description: Foreign key to the watchlist.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: watchlists.id
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock on the watchlist.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: added_at
+        type: TIMESTAMP
+        description: Timestamp when the stock was added to the watchlist.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  # ---------------------------------------------------------------------------
+  # Market Indices
+  # ---------------------------------------------------------------------------
+  - table_name: market_indices
+    description: >
+      Market indices tracked by the platform (e.g., S&P 500, NASDAQ Composite).
+      Each index is associated with an exchange.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the market index.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: name
+        type: VARCHAR(255)
+        description: Full name of the index (e.g., "S&P 500").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: code
+        type: VARCHAR(20)
+        description: Short code for the index (e.g., "SPX", "NDX").
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: exchange_id
+        type: INTEGER
+        description: Foreign key to the exchange this index belongs to.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: exchanges.id
+      - name: created_at
+        type: TIMESTAMP
+        description: Timestamp when the index record was created.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+
+  - table_name: index_compositions
+    description: >
+      Mapping of stocks to market indices, including their weight percentage.
+      Tracks historical membership via added_date and removed_date.
+    columns:
+      - name: id
+        type: SERIAL
+        description: Unique identifier for the composition record.
+        nullable: false
+        is_primary_key: true
+        is_foreign_key: false
+      - name: index_id
+        type: INTEGER
+        description: Foreign key to the market index.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: market_indices.id
+      - name: stock_id
+        type: INTEGER
+        description: Foreign key to the stock that is a constituent of the index.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: true
+        references: stocks.id
+      - name: weight_percentage
+        type: NUMERIC(6, 4)
+        description: >
+          The stock's weight in the index as a percentage (e.g., 5.2300 = 5.23 %).
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: added_date
+        type: DATE
+        description: Date the stock was added to the index.
+        nullable: false
+        is_primary_key: false
+        is_foreign_key: false
+      - name: removed_date
+        type: DATE
+        description: >
+          Date the stock was removed from the index.
+          NULL if the stock is still a current constituent.
+        nullable: true
+        is_primary_key: false
+        is_foreign_key: false
