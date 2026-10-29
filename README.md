@@ -158,7 +158,7 @@ Edit `.env` and add your Google API key:
 
 ```env
 GOOGLE_API_KEY=your_actual_google_api_key
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.8-flash
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=trading_platform
