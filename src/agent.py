@@ -62,41 +62,60 @@ def _extract_sql_from_text(text: str) -> list[str]:
     return re.findall(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
 
 
-def _build_context_digest(past_messages: list, max_past_turns: int = 4) -> str:
-    """Extract structured summaries (SQL queries, entities, and answers) from previous turns.
+def _build_context_digest(messages: list, max_past_turns: int = 4) -> str:
+    """Extract structured SQL queries from completed previous turns.
 
-    Injects this into the prompt so the LLM retains full context of previous data
-    without needing raw, token-heavy ToolMessages from past turns.
+    Injects previous queries into the prompt so the LLM retains full context of
+    tables, joins, IDs, and filters used earlier, without duplicating the
+    conversational text already present in clean_history.
     """
+    last_human_idx = -1
+    for i, m in enumerate(messages):
+        if isinstance(m, HumanMessage):
+            last_human_idx = i
+
+    # No completed past turns exist if there is no previous human message
+    if last_human_idx <= 0:
+        return ""
+
+    past_messages = messages[:last_human_idx]
     turns: list[dict] = []
     current_human: str = ""
+    current_sqls: list[str] = []
 
     for m in past_messages:
         if isinstance(m, HumanMessage):
+            if current_human and current_sqls:
+                turns.append({"question": current_human, "sqls": current_sqls})
             current_human = _extract_text(m.content).strip()
-        elif isinstance(m, AIMessage) and current_human:
+            current_sqls = []
+        elif isinstance(m, AIMessage):
+            # Extract SQL from actual tool calls (execute_sql_query)
+            tool_calls = getattr(m, "tool_calls", None) or []
+            for tc in tool_calls:
+                if tc.get("name") == "execute_sql_query":
+                    query = tc.get("args", {}).get("query", "")
+                    if query and query.strip() and query.strip() not in current_sqls:
+                        current_sqls.append(query.strip())
+            # Fallback to fenced markdown code blocks if tool_calls not present
             text = _extract_text(m.content).strip()
             if text:
-                sql_blocks = _extract_sql_from_text(text)
-                turns.append(
-                    {
-                        "question": current_human,
-                        "sql": sql_blocks[-1] if sql_blocks else None,
-                        "summary": text[:400].replace("\n", " "),
-                    }
-                )
-                current_human = ""
+                for block in _extract_sql_from_text(text):
+                    if block.strip() and block.strip() not in current_sqls:
+                        current_sqls.append(block.strip())
+
+    if current_human and current_sqls:
+        turns.append({"question": current_human, "sqls": current_sqls})
 
     if not turns:
         return ""
 
     recent_turns = turns[-max_past_turns:]
-    lines = ["\n## Structured History & Queries from Previous Turns:"]
+    lines = ["\n## Previous SQL Queries from Recent Turns:"]
     for i, t in enumerate(recent_turns, 1):
-        lines.append(f"- Turn #{i} Question: \"{t['question']}\"")
-        if t["sql"]:
-            lines.append(f"  SQL Used: {t['sql'].strip()}")
-        lines.append(f"  Key Result Summary: {t['summary']}...")
+        lines.append(f"- Previous Question: \"{t['question']}\"")
+        for sql in t["sqls"]:
+            lines.append(f"  SQL Used: {sql}")
     lines.append("\nYou can directly reference the entities, IDs, and metrics from previous queries above.\n")
     return "\n".join(lines)
 
@@ -104,7 +123,8 @@ def _build_context_digest(past_messages: list, max_past_turns: int = 4) -> str:
 def _format_clean_history(messages: list, max_past_turns: int = 4) -> list:
     """Prepare conversation history for Groq and Gemini.
 
-    Ensures strict Human -> AI turn alternation for all completed past turns,
+    Ensures strict Human -> AI turn alternation for all completed past turns
+    (using the final AI response per turn and omitting intermediate tool calls),
     while leaving the current active turn's tool-call chain intact.
     """
     last_human_idx = 0
@@ -116,14 +136,24 @@ def _format_clean_history(messages: list, max_past_turns: int = 4) -> list:
     current = messages[last_human_idx:]
 
     cleaned_past = []
+    current_human = None
+    last_ai_text = ""
+
     for m in past:
         if isinstance(m, HumanMessage):
-            cleaned_past.append(m)
+            if current_human is not None and last_ai_text:
+                cleaned_past.append(current_human)
+                cleaned_past.append(AIMessage(content=last_ai_text))
+            current_human = m
+            last_ai_text = ""
         elif isinstance(m, AIMessage):
-            text = _extract_text(m.content)
-            if text.strip():
-                # Strip raw tool_calls from past completed turns
-                cleaned_past.append(AIMessage(content=text))
+            text = _extract_text(m.content).strip()
+            if text:
+                last_ai_text = text
+
+    if current_human is not None and last_ai_text:
+        cleaned_past.append(current_human)
+        cleaned_past.append(AIMessage(content=last_ai_text))
 
     if len(cleaned_past) > max_past_turns * 2:
         cleaned_past = cleaned_past[-(max_past_turns * 2):]
@@ -131,8 +161,24 @@ def _format_clean_history(messages: list, max_past_turns: int = 4) -> list:
     return cleaned_past + current
 
 
+def _count_current_turn_sql_queries(messages: list) -> int:
+    """Count how many execute_sql_query tool executions occurred in the active turn."""
+    last_human_idx = 0
+    for i, m in enumerate(messages):
+        if isinstance(m, HumanMessage):
+            last_human_idx = i
+
+    current_turn = messages[last_human_idx:]
+    count = 0
+    for m in current_turn:
+        is_tool = getattr(m, "type", "") == "tool" or hasattr(m, "tool_call_id")
+        if is_tool and getattr(m, "name", "") == "execute_sql_query":
+            count += 1
+    return count
+
+
 def _count_current_turn_tools(messages: list) -> int:
-    """Count how many tool results have been executed in the active turn."""
+    """Count total tool results executed in the active turn."""
     last_human_idx = 0
     for i, m in enumerate(messages):
         if isinstance(m, HumanMessage):
@@ -173,6 +219,13 @@ class DataCopilotAgent:
         self.knowledge_base = KnowledgeBase()
         logger.info("Knowledge base loaded")
 
+        # Cache static schema, joins, and metrics in base system prompt
+        self.base_system_prompt = SYSTEM_PROMPT.format(
+            schema_context=self.knowledge_base.get_compact_schema(),
+            joins_context=self.knowledge_base.get_compact_joins(),
+            metrics_list=self.knowledge_base.get_compact_metrics_list(),
+        )
+
         # 2. Tools
         self.tools = [
             execute_sql_query,
@@ -202,15 +255,12 @@ class DataCopilotAgent:
         self.graph = self._build_graph()
         logger.info("LangGraph compiled successfully with PostgresSaver")
 
-    def _build_system_prompt(self, past_messages: list) -> str:
-        """Render a compact system prompt enriched with structured past query context."""
-        context_digest = _build_context_digest(past_messages, max_past_turns=4)
-        base_prompt = SYSTEM_PROMPT.format(
-            schema_context=self.knowledge_base.get_compact_schema(),
-            joins_context=self.knowledge_base.get_compact_joins(),
-            metrics_list=self.knowledge_base.get_compact_metrics_list(),
-        )
-        return base_prompt + "\n" + context_digest
+    def _build_system_prompt(self, messages: list) -> str:
+        """Render system prompt with cached base context and dynamic context digest."""
+        context_digest = _build_context_digest(messages, max_past_turns=4)
+        if context_digest:
+            return f"{self.base_system_prompt}\n{context_digest}"
+        return self.base_system_prompt
 
     # ── Graph Nodes ──────────────────────────────────────────────────────
 
@@ -218,18 +268,22 @@ class DataCopilotAgent:
         """Main chatbot node supporting multi-step SQL queries and self-correction."""
         all_messages = state["messages"]
         clean_history = _format_clean_history(all_messages)
-        tools_executed = _count_current_turn_tools(clean_history)
+        sql_executed = _count_current_turn_sql_queries(clean_history)
+        total_tools_executed = _count_current_turn_tools(clean_history)
 
-        max_allowed_rounds = settings.max_sql_rounds_per_question
+        max_allowed_sql = settings.max_sql_rounds_per_question
+        max_total_tools = max_allowed_sql * 2  # Safety cap for non-SQL tools
 
-        # Identify if we should allow another tool call or force final synthesis
-        can_use_tools = tools_executed < max_allowed_rounds
+        # Allow tools only if under both SQL query budget and total tool limit
+        can_use_tools = (sql_executed < max_allowed_sql) and (total_tools_executed < max_total_tools)
 
         logger.info(
-            "Chatbot node: tools_executed_in_turn=%d, can_use_tools=%s (max=%d)",
-            tools_executed,
+            "Chatbot node: sql_executed=%d (max=%d), total_tools=%d (max=%d), can_use_tools=%s",
+            sql_executed,
+            max_allowed_sql,
+            total_tools_executed,
+            max_total_tools,
             can_use_tools,
-            max_allowed_rounds,
         )
 
         system_prompt = self._build_system_prompt(all_messages)
@@ -238,24 +292,70 @@ class DataCopilotAgent:
 
         try:
             response = self.llm_pool.invoke(messages_to_send, with_tools=can_use_tools)
-            tc = len(response.tool_calls) if getattr(response, "tool_calls", None) else 0
-            cl = len(_extract_text(response.content))
-            logger.info("LLM responded: %d text chars, %d tool_calls", cl, tc)
         except Exception as e:
             logger.error("LLM invocation failed: %s", e, exc_info=True)
             raise
+
+        # Strictly enforce tool execution limits on response.tool_calls
+        raw_tool_calls = getattr(response, "tool_calls", None) or []
+        if not can_use_tools:
+            if raw_tool_calls:
+                logger.warning("Clearing %d tool calls because tools were disabled", len(raw_tool_calls))
+                response.tool_calls = []
+                if hasattr(response, "additional_kwargs") and "tool_calls" in response.additional_kwargs:
+                    response.additional_kwargs.pop("tool_calls", None)
+        elif raw_tool_calls:
+            allowed_tool_calls = []
+            curr_sql = sql_executed
+            curr_total = total_tools_executed
+
+            for tc in raw_tool_calls:
+                is_sql = tc.get("name") == "execute_sql_query"
+                if is_sql:
+                    if curr_sql < max_allowed_sql and curr_total < max_total_tools:
+                        allowed_tool_calls.append(tc)
+                        curr_sql += 1
+                        curr_total += 1
+                    else:
+                        logger.warning(
+                            "Dropping tool call '%s' - SQL query limit reached (%d/%d)",
+                            tc.get("name"),
+                            curr_sql,
+                            max_allowed_sql,
+                        )
+                else:
+                    if curr_total < max_total_tools:
+                        allowed_tool_calls.append(tc)
+                        curr_total += 1
+                    else:
+                        logger.warning(
+                            "Dropping tool call '%s' - total tool limit reached (%d/%d)",
+                            tc.get("name"),
+                            curr_total,
+                            max_total_tools,
+                        )
+            response.tool_calls = allowed_tool_calls
+            if hasattr(response, "additional_kwargs") and "tool_calls" in response.additional_kwargs:
+                allowed_ids = {tc.get("id") for tc in allowed_tool_calls}
+                response.additional_kwargs["tool_calls"] = [
+                    tc for tc in response.additional_kwargs["tool_calls"]
+                    if tc.get("id") in allowed_ids
+                ]
+
+        tc = len(response.tool_calls) if getattr(response, "tool_calls", None) else 0
+        cl = len(_extract_text(response.content))
+        logger.info("LLM responded: %d text chars, %d tool_calls accepted", cl, tc)
 
         return {"messages": [response]}
 
     @staticmethod
     def _route(state: AgentState) -> str:
-        """Route conditionally: tools if tool_calls present and under limit, else END."""
+        """Route conditionally: tools if tool_calls present, else END."""
         last_message = state["messages"][-1]
         has_tools = bool(getattr(last_message, "tool_calls", None))
-        tools_executed = _count_current_turn_tools(state["messages"])
 
-        if has_tools and tools_executed < settings.max_sql_rounds_per_question:
-            logger.info("-> Routing to tools (query #%d)", tools_executed + 1)
+        if has_tools:
+            logger.info("-> Routing to tools (%d tool call(s))", len(last_message.tool_calls))
             return "tools"
 
         logger.info("-> Routing to END (synthesis complete or tool budget reached)")
@@ -290,7 +390,7 @@ class DataCopilotAgent:
         logger.info("chat_sync(): thread=%s, msg='%s'", thread_id, message[:80])
         config = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": settings.max_sql_rounds_per_question * 2 + 4,
+            "recursion_limit": settings.max_sql_rounds_per_question * 2 + 6,
         }
         try:
             result = self.graph.invoke(
@@ -315,3 +415,4 @@ class DataCopilotAgent:
             logger.info("PostgreSQL checkpointer pool closed cleanly")
         except Exception as e:
             logger.warning("Error closing checkpointer pool: %s", e)
+ 
